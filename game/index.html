@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AURELIA RING RUN — a flight game</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a1220; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eef4ff; }
+  #game { display: block; width: 100vw; height: 100vh; }
+  .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+  /* ---- HUD ---- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .panel { position: absolute; background: rgba(8, 16, 30, 0.62); border: 1px solid rgba(150, 200, 255, 0.35);
+    border-radius: 10px; padding: 10px 14px; backdrop-filter: blur(2px); }
+  .label { font-size: 10px; letter-spacing: 0.18em; color: #9fc3ee; }
+  .value { font-size: 30px; font-weight: 700; line-height: 1.05; color: #fff; text-shadow: 0 0 12px rgba(90, 180, 255, 0.55); }
+  .unit { font-size: 11px; color: #9fc3ee; margin-left: 2px; }
+  #hud-left { top: 14px; left: 14px; display: flex; gap: 10px; }
+  #hud-left .panel { position: static; min-width: 108px; text-align: center; }
+  #hud-compass { top: 14px; left: 50%; transform: translateX(-50%); padding: 6px 12px; font-size: 12px;
+    letter-spacing: 0.1em; white-space: nowrap; }
+  #hud-compass span { margin: 0 7px; }
+  #hud-compass .tick-on { color: #ffd75e; font-weight: 700; }
+  #hud-right { top: 14px; right: 14px; text-align: right; min-width: 190px; }
+  #hud-right .row { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
+  #hud-right .row b { color: #ffd75e; }
+  .bar { height: 9px; background: rgba(255,255,255,0.16); border-radius: 5px; overflow: hidden; margin-top: 4px; }
+  .bar > div { height: 100%; border-radius: 5px; transition: width 0.15s linear; }
+  #hud-fuel-fill { background: linear-gradient(90deg, #37d67a, #9be15d); width: 100%; }
+  #hud-fuel-fill.low { background: linear-gradient(90deg, #ff5a3c, #ffb020); }
+  #hud-damage-fill { background: linear-gradient(90deg, #ffb020, #ff5a3c); width: 0%; }
+  #hud-throttle { left: 50%; bottom: 16px; transform: translateX(-50%); width: 300px; text-align: center; }
+  #hud-throttle-fill { background: linear-gradient(90deg, #2f9dff, #7dd8ff); width: 0%; }
+  #hud-mission { left: 14px; bottom: 16px; max-width: 420px; font-size: 14px; line-height: 1.35; }
+  #hud-mission .label { display: block; margin-bottom: 2px; }
+  #hud-horizon { right: 14px; bottom: 16px; width: 110px; height: 110px; border-radius: 50%; overflow: hidden;
+    padding: 0; border: 2px solid rgba(150, 200, 255, 0.5); }
+  #hud-horizon-ball { position: absolute; left: -25%; top: -25%; width: 150%; height: 150%;
+    background: linear-gradient(#3f8fd2 0%, #3f8fd2 49.5%, #7a5a38 50.5%, #7a5a38 100%); }
+  #hud-horizon::after { content: ""; position: absolute; left: 50%; top: 50%; width: 46px; height: 3px;
+    background: #ffd75e; transform: translate(-50%, -50%); border-radius: 2px; }
+  #hud-reticle { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%);
+    border: 2px solid rgba(255, 215, 94, 0.9); border-radius: 50%; opacity: 0; }
+  #hud-reticle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
+    background: #ffd75e; border-radius: 50%; transform: translate(-50%, -50%); }
+  #hud-ring-arrow { position: absolute; left: 50%; top: 38%; font-size: 34px; color: #ffd75e;
+    text-shadow: 0 0 10px rgba(0,0,0,0.8); opacity: 0; }
+  #hud-ring-dist { position: absolute; left: 50%; top: 44%; transform: translateX(-50%); font-size: 15px;
+    font-weight: 700; color: #ffd75e; text-shadow: 0 1px 4px rgba(0,0,0,0.9); opacity: 0; }
+  #hud-banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font-size: 24px;
+    font-weight: 800; letter-spacing: 0.06em; color: #ffd75e; text-shadow: 0 2px 10px rgba(0,0,0,0.9);
+    opacity: 0; transition: opacity 0.3s; white-space: nowrap; }
+  #hud-banner.show { opacity: 1; }
+  #hud-warn { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); font-size: 20px; font-weight: 800;
+    color: #ff5a3c; text-shadow: 0 0 14px rgba(255, 60, 30, 0.8); opacity: 0; animation: blink 0.5s steps(2) infinite; }
+  #hud-warn.show { opacity: 1; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  #hud-help { left: 14px; top: 50%; transform: translateY(-50%); font-size: 12px; line-height: 1.7; color: #c8dcf5; }
+  #hud-help b { color: #fff; }
+
+  /* ---- Full-screen overlays ---- */
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    z-index: 10; pointer-events: none; }
+  .screen.show { display: flex; }
+  /* The title card sits high so the jet on the strip shows beneath it. */
+  #screen-title { align-items: flex-start; padding-top: 7vh; }
+  .card { pointer-events: auto; background: rgba(8, 16, 30, 0.78); border: 1px solid rgba(150, 200, 255, 0.4);
+    border-radius: 16px; padding: 30px 38px; max-width: 620px; text-align: center; backdrop-filter: blur(4px); }
+  .card h1 { font-size: 46px; letter-spacing: 0.04em; color: #fff; text-shadow: 0 0 24px rgba(90, 180, 255, 0.7); }
+  .card h1 span { color: #ffd75e; }
+  .card h2 { font-size: 34px; color: #fff; margin-bottom: 8px; }
+  .card p { font-size: 15px; line-height: 1.55; color: #c8dcf5; margin: 10px 0; }
+  .card .sub { font-size: 13px; letter-spacing: 0.22em; color: #9fc3ee; }
+  .card .keys { font-size: 13px; line-height: 1.9; color: #dbe9ff; margin: 14px 0; }
+  .card .keys b { background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 5px; padding: 1px 7px; font-weight: 600; }
+  .big-score { font-size: 54px; font-weight: 800; color: #ffd75e; line-height: 1.1; }
+  .best-score { font-size: 13px; letter-spacing: 0.18em; color: #9fc3ee; margin-top: 6px; }
+  .cta { margin-top: 16px; font-size: 15px; font-weight: 700; color: #ffd75e; letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="hud-left">
+    <div class="panel"><div class="label">ALTITUDE</div><div class="value mono"><span id="hud-alt">00000</span><span class="unit">FT</span></div></div>
+    <div class="panel"><div class="label">AIRSPEED</div><div class="value mono"><span id="hud-spd">000</span><span class="unit">KT</span></div></div>
+    <div class="panel"><div class="label">HEADING</div><div class="value mono"><span id="hud-hdg">090</span><span class="unit">&deg;</span></div></div>
+  </div>
+  <div id="hud-compass" class="panel mono"></div>
+  <div id="hud-right" class="panel">
+    <div class="row"><span>SCORE</span><b class="mono" id="hud-score">0</b></div>
+    <div class="row"><span>RINGS</span><b class="mono" id="hud-rings">0 / 8</b></div>
+    <div class="row"><span>TIME</span><b class="mono" id="hud-timer">00:00</b></div>
+    <div class="label" style="margin-top:8px">FUEL</div><div class="bar"><div id="hud-fuel-fill"></div></div>
+    <div class="label" style="margin-top:6px">HULL DAMAGE</div><div class="bar"><div id="hud-damage-fill"></div></div>
+  </div>
+  <div id="hud-throttle" class="panel"><div class="bar"><div id="hud-throttle-fill"></div></div><div class="label" style="margin-top:4px"><span id="hud-throttle-text">THR 0%</span> &nbsp;·&nbsp; SHIFT BOOST &nbsp;·&nbsp; SPACE BRAKE</div></div>
+  <div id="hud-mission" class="panel"><span class="label">MISSION</span><span id="hud-mission-text">Line up on the runway.</span></div>
+  <div id="hud-horizon" class="panel"><div id="hud-horizon-ball"></div></div>
+  <div id="hud-reticle"></div>
+  <div id="hud-ring-arrow">&#9650;</div>
+  <div id="hud-ring-dist" class="mono"></div>
+  <div id="hud-banner"></div>
+  <div id="hud-warn"></div>
+  <div id="hud-help" class="panel"><b>W/S</b> throttle &nbsp; <b>&#8592;&#8593;&#8595;&#8594;</b> fly<br><b>A/D</b> rudder &nbsp; <b>Mouse</b> steer<br><b>Space</b> brake &nbsp; <b>Shift</b> boost<br><b>P</b> pause &nbsp; <b>R</b> restart &nbsp; <b>M</b> mute</div>
+</div>
+
+<div id="screen-title" class="screen"><div class="card">
+  <div class="sub">AURELIA ARCHIPELAGO &middot; GOLDEN HOUR</div>
+  <h1>AURELIA <span>RING RUN</span></h1>
+  <p>Fly the Kitehawk Mk.III over three islands, thread all eight gold rings,
+     then bring her home onto the coastal strip. Mind your fuel, mind your speed —
+     the mountains do not forgive.</p>
+  <div class="keys">
+    <b>W / S</b> throttle &nbsp; <b>&larr; &uarr; &darr; &rarr;</b> pitch &amp; bank &nbsp; <b>A / D</b> rudder<br>
+    <b>Mouse</b> steer &nbsp; <b>Space</b> brake &nbsp; <b>Shift</b> boost &nbsp; <b>P</b> pause
+  </div>
+  <div class="cta">PRESS ENTER OR CLICK TO FLY</div>
+  <div class="best-score">BEST 0</div>
+</div></div>
+
+<div id="screen-paused" class="screen"><div class="card">
+  <h2>PAUSED</h2>
+  <p>The Kitehawk holds her breath. Press <b>P</b> to keep flying, <b>R</b> to restart the sortie.</p>
+</div></div>
+
+<div id="screen-landed" class="screen"><div class="card">
+  <div class="sub">SORTIE COMPLETE</div>
+  <h2>Welcome home, pilot.</h2>
+  <div class="big-score mono" id="final-score">0</div>
+  <p id="final-detail"></p>
+  <div class="cta">PRESS ENTER TO FLY AGAIN</div>
+  <div class="best-score">BEST 0</div>
+</div></div>
+
+<div id="screen-crashed" class="screen"><div class="card">
+  <div class="sub">SORTIE LOST</div>
+  <h2>The Kitehawk is down.</h2>
+  <p id="crash-reason"></p>
+  <div class="big-score mono" id="crash-score">0</div>
+  <div class="cta">PRESS ENTER TO TRY AGAIN</div>
+  <div class="best-score">BEST 0</div>
+</div></div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
